@@ -25,6 +25,8 @@ namespace Microsoft::Console::Utils
     COLORREF ColorFromHexString(const std::string wstr);
 
     void InitializeCampbellColorTable(gsl::span<COLORREF>& table);
+    void InitializeCampbellColorTableForConhost(gsl::span<COLORREF>& table);
+    void SwapANSIColorOrderForConhost(gsl::span<COLORREF>& table);
     void Initialize256ColorTable(gsl::span<COLORREF>& table);
     void SetColorTableAlpha(gsl::span<COLORREF>& table, const BYTE newAlpha);
 
@@ -37,9 +39,9 @@ namespace Microsoft::Console::Utils
     constexpr uint32_t EndianSwap(uint32_t value)
     {
         return (value & 0xFF000000) >> 24 |
-               (value & 0x00FF0000) >>  8 |
-               (value & 0x0000FF00) <<  8 |
-               (value & 0x000000FF) <<  24;
+               (value & 0x00FF0000) >> 8 |
+               (value & 0x0000FF00) << 8 |
+               (value & 0x000000FF) << 24;
     }
 
     constexpr unsigned long EndianSwap(unsigned long value)

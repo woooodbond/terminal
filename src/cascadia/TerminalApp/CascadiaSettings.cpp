@@ -4,9 +4,12 @@
 #include "pch.h"
 #include <argb.h>
 #include <conattrs.hpp>
+#include <io.h>
+#include <fcntl.h>
 #include "CascadiaSettings.h"
 #include "../../types/inc/utils.hpp"
 #include "../../inc/DefaultSettings.h"
+#include "winrt/Microsoft.Terminal.TerminalConnection.h"
 
 using namespace winrt::Microsoft::Terminal::Settings;
 using namespace ::TerminalApp;
@@ -16,35 +19,64 @@ using namespace Microsoft::Console;
 
 // {2bde4a90-d05f-401c-9492-e40884ead1d8}
 // uuidv5 properties: name format is UTF-16LE bytes
-static constexpr GUID TERMINAL_PROFILE_NAMESPACE_GUID =
-{ 0x2bde4a90, 0xd05f, 0x401c, { 0x94, 0x92, 0xe4, 0x8, 0x84, 0xea, 0xd1, 0xd8 } };
+static constexpr GUID TERMINAL_PROFILE_NAMESPACE_GUID = { 0x2bde4a90, 0xd05f, 0x401c, { 0x94, 0x92, 0xe4, 0x8, 0x84, 0xea, 0xd1, 0xd8 } };
 
 static constexpr std::wstring_view PACKAGED_PROFILE_ICON_PATH{ L"ms-appx:///ProfileIcons/" };
 static constexpr std::wstring_view PACKAGED_PROFILE_ICON_EXTENSION{ L".png" };
+static constexpr std::wstring_view DEFAULT_LINUX_ICON_GUID{ L"{9acb9455-ca41-5af7-950f-6bca1bc9722f}" };
 
 CascadiaSettings::CascadiaSettings() :
     _globals{},
     _profiles{}
 {
-
 }
 
 CascadiaSettings::~CascadiaSettings()
 {
-
 }
 
 ColorScheme _CreateCampbellScheme()
 {
-    ColorScheme campbellScheme { L"Campbell",
-                                 RGB(242, 242, 242),
-                                 RGB(12, 12, 12) };
+    ColorScheme campbellScheme{ L"Campbell",
+                                RGB(204, 204, 204),
+                                RGB(12, 12, 12) };
     auto& campbellTable = campbellScheme.GetTable();
     auto campbellSpan = gsl::span<COLORREF>(&campbellTable[0], gsl::narrow<ptrdiff_t>(COLOR_TABLE_SIZE));
     Utils::InitializeCampbellColorTable(campbellSpan);
     Utils::SetColorTableAlpha(campbellSpan, 0xff);
 
     return campbellScheme;
+}
+
+// clang-format off
+
+ColorScheme _CreateVintageScheme()
+{
+    // as per https://github.com/microsoft/terminal/issues/1781
+    ColorScheme vintageScheme { L"Vintage",
+                                RGB(192, 192, 192),
+                                RGB(  0,   0,   0) };
+    auto& vintageTable = vintageScheme.GetTable();
+    auto vintageSpan = gsl::span<COLORREF>(&vintageTable[0], gsl::narrow<ptrdiff_t>(COLOR_TABLE_SIZE));
+    vintageTable[0]  = RGB(  0,   0,   0); // black
+    vintageTable[1]  = RGB(128,   0,   0); // dark red
+    vintageTable[2]  = RGB(  0, 128,   0); // dark green
+    vintageTable[3]  = RGB(128, 128,   0); // dark yellow
+    vintageTable[4]  = RGB(  0,   0, 128); // dark blue
+    vintageTable[5]  = RGB(128,   0, 128); // dark magenta
+    vintageTable[6]  = RGB(  0, 128, 128); // dark cyan
+    vintageTable[7]  = RGB(192, 192, 192); // gray
+    vintageTable[8]  = RGB(128, 128, 128); // dark gray
+    vintageTable[9]  = RGB(255,   0,   0); // red
+    vintageTable[10] = RGB(  0, 255,   0); // green
+    vintageTable[11] = RGB(255, 255,   0); // yellow
+    vintageTable[12] = RGB(  0,   0, 255); // blue
+    vintageTable[13] = RGB(255,   0, 255); // magenta
+    vintageTable[14] = RGB(  0, 255, 255); // cyan
+    vintageTable[15] = RGB(255, 255, 255); // white
+    Utils::SetColorTableAlpha(vintageSpan, 0xff);
+
+    return vintageScheme;
 }
 
 ColorScheme _CreateOneHalfDarkScheme()
@@ -111,12 +143,12 @@ ColorScheme _CreateOneHalfLightScheme()
 ColorScheme _CreateSolarizedDarkScheme()
 {
     ColorScheme solarizedDarkScheme { L"Solarized Dark",
-                                      RGB(253, 246, 227),
-                                      RGB(  7, 54,  66) };
+                                      RGB(131, 148, 150),
+                                      RGB(  0,  43,  54) };
     auto& solarizedDarkTable = solarizedDarkScheme.GetTable();
     auto solarizedDarkSpan = gsl::span<COLORREF>(&solarizedDarkTable[0], gsl::narrow<ptrdiff_t>(COLOR_TABLE_SIZE));
     solarizedDarkTable[0]  = RGB(  7, 54, 66);
-    solarizedDarkTable[1]  = RGB(211, 1, 2);
+    solarizedDarkTable[1]  = RGB(220, 50, 47);
     solarizedDarkTable[2]  = RGB(133, 153, 0);
     solarizedDarkTable[3]  = RGB(181, 137, 0);
     solarizedDarkTable[4]  = RGB( 38, 139, 210);
@@ -139,12 +171,12 @@ ColorScheme _CreateSolarizedDarkScheme()
 ColorScheme _CreateSolarizedLightScheme()
 {
     ColorScheme solarizedLightScheme { L"Solarized Light",
-                                       RGB(  7, 54,  66),
+                                       RGB(101, 123, 131),
                                        RGB(253, 246, 227) };
     auto& solarizedLightTable = solarizedLightScheme.GetTable();
     auto solarizedLightSpan = gsl::span<COLORREF>(&solarizedLightTable[0], gsl::narrow<ptrdiff_t>(COLOR_TABLE_SIZE));
     solarizedLightTable[0]  = RGB(  7, 54, 66);
-    solarizedLightTable[1]  = RGB(211, 1, 2);
+    solarizedLightTable[1]  = RGB(220, 50, 47);
     solarizedLightTable[2]  = RGB(133, 153, 0);
     solarizedLightTable[3]  = RGB(181, 137, 0);
     solarizedLightTable[4]  = RGB( 38, 139, 210);
@@ -164,6 +196,8 @@ ColorScheme _CreateSolarizedLightScheme()
     return solarizedLightScheme;
 }
 
+// clang-format on
+
 // Method Description:
 // - Create the set of schemes to use as the default schemes. Currently creates
 //      five default color schemes - Campbell (the new cmd color scheme),
@@ -175,6 +209,7 @@ ColorScheme _CreateSolarizedLightScheme()
 void CascadiaSettings::_CreateDefaultSchemes()
 {
     _globals.GetColorSchemes().emplace_back(_CreateCampbellScheme());
+    _globals.GetColorSchemes().emplace_back(_CreateVintageScheme());
     _globals.GetColorSchemes().emplace_back(_CreateOneHalfDarkScheme());
     _globals.GetColorSchemes().emplace_back(_CreateOneHalfLightScheme());
     _globals.GetColorSchemes().emplace_back(_CreateSolarizedDarkScheme());
@@ -211,7 +246,7 @@ void CascadiaSettings::_CreateDefaultProfiles()
     if (_isPowerShellCoreInstalled(psCoreCmdline))
     {
         auto pwshProfile{ _CreateDefaultProfile(L"PowerShell Core") };
-        pwshProfile.SetCommandline(psCoreCmdline);
+        pwshProfile.SetCommandline(std::move(psCoreCmdline));
         pwshProfile.SetStartingDirectory(DEFAULT_STARTING_DIRECTORY);
         pwshProfile.SetColorScheme({ L"Campbell" });
 
@@ -227,6 +262,25 @@ void CascadiaSettings::_CreateDefaultProfiles()
 
     _profiles.emplace_back(powershellProfile);
     _profiles.emplace_back(cmdProfile);
+
+    if (winrt::Microsoft::Terminal::TerminalConnection::AzureConnection::IsAzureConnectionAvailable())
+    {
+        auto azureCloudShellProfile{ _CreateDefaultProfile(L"Azure Cloud Shell") };
+        azureCloudShellProfile.SetCommandline(L"Azure");
+        azureCloudShellProfile.SetStartingDirectory(DEFAULT_STARTING_DIRECTORY);
+        azureCloudShellProfile.SetColorScheme({ L"Vintage" });
+        azureCloudShellProfile.SetAcrylicOpacity(0.6);
+        azureCloudShellProfile.SetUseAcrylic(true);
+        azureCloudShellProfile.SetCloseOnExit(false);
+        azureCloudShellProfile.SetConnectionType(AzureConnectionType);
+        _profiles.emplace_back(azureCloudShellProfile);
+    }
+
+    try
+    {
+        _AppendWslProfiles(_profiles);
+    }
+    CATCH_LOG()
 }
 
 // Method Description:
@@ -238,27 +292,42 @@ void CascadiaSettings::_CreateDefaultProfiles()
 void CascadiaSettings::_CreateDefaultKeybindings()
 {
     AppKeyBindings keyBindings = _globals.GetKeybindings();
-    // Set up spme basic default keybindings
-    // TODO:MSFT:20700157 read our settings from some source, and configure
-    //      keychord,action pairings from that file
+    // Set up some basic default keybindings
     keyBindings.SetKeyBinding(ShortcutAction::NewTab,
-                               KeyChord{ KeyModifiers::Ctrl,
-                                         static_cast<int>('T') });
+                              KeyChord{ KeyModifiers::Ctrl | KeyModifiers::Shift,
+                                        static_cast<int>('T') });
 
-    keyBindings.SetKeyBinding(ShortcutAction::CloseTab,
-                               KeyChord{ KeyModifiers::Ctrl,
-                                         static_cast<int>('W') });
+    keyBindings.SetKeyBinding(ShortcutAction::OpenNewTabDropdown,
+                              KeyChord{ KeyModifiers::Ctrl | KeyModifiers::Shift,
+                                        static_cast<int>(' ') });
+
+    keyBindings.SetKeyBinding(ShortcutAction::DuplicateTab,
+                              KeyChord{ KeyModifiers::Ctrl | KeyModifiers::Shift,
+                                        static_cast<int>('D') });
+
+    keyBindings.SetKeyBinding(ShortcutAction::ClosePane,
+                              KeyChord{ KeyModifiers::Ctrl | KeyModifiers::Shift,
+                                        static_cast<int>('W') });
+
+    keyBindings.SetKeyBinding(ShortcutAction::CopyText,
+                              KeyChord{ KeyModifiers::Ctrl | KeyModifiers::Shift,
+                                        static_cast<int>('C') });
+
+    keyBindings.SetKeyBinding(ShortcutAction::PasteText,
+                              KeyChord{ KeyModifiers::Ctrl | KeyModifiers::Shift,
+                                        static_cast<int>('V') });
+
     keyBindings.SetKeyBinding(ShortcutAction::OpenSettings,
-                               KeyChord{ KeyModifiers::Ctrl,
-                                         VK_OEM_COMMA });
+                              KeyChord{ KeyModifiers::Ctrl,
+                                        VK_OEM_COMMA });
 
     keyBindings.SetKeyBinding(ShortcutAction::NextTab,
-                               KeyChord{ KeyModifiers::Ctrl,
-                                         VK_TAB });
+                              KeyChord{ KeyModifiers::Ctrl,
+                                        VK_TAB });
 
     keyBindings.SetKeyBinding(ShortcutAction::PrevTab,
-                               KeyChord{ KeyModifiers::Ctrl | KeyModifiers::Shift,
-                                         VK_TAB });
+                              KeyChord{ KeyModifiers::Ctrl | KeyModifiers::Shift,
+                                        VK_TAB });
 
     // Yes these are offset by one.
     // Ideally, you'd want C-S-1 to open the _first_ profile, which is index 0
@@ -303,31 +372,31 @@ void CascadiaSettings::_CreateDefaultKeybindings()
                               KeyChord{ KeyModifiers::Ctrl | KeyModifiers::Shift,
                                         VK_PRIOR });
     keyBindings.SetKeyBinding(ShortcutAction::SwitchToTab0,
-                              KeyChord{ KeyModifiers::Alt,
+                              KeyChord{ KeyModifiers::Alt | KeyModifiers::Ctrl,
                                         static_cast<int>('1') });
     keyBindings.SetKeyBinding(ShortcutAction::SwitchToTab1,
-                              KeyChord{ KeyModifiers::Alt,
+                              KeyChord{ KeyModifiers::Alt | KeyModifiers::Ctrl,
                                         static_cast<int>('2') });
     keyBindings.SetKeyBinding(ShortcutAction::SwitchToTab2,
-                              KeyChord{ KeyModifiers::Alt,
+                              KeyChord{ KeyModifiers::Alt | KeyModifiers::Ctrl,
                                         static_cast<int>('3') });
     keyBindings.SetKeyBinding(ShortcutAction::SwitchToTab3,
-                              KeyChord{ KeyModifiers::Alt,
+                              KeyChord{ KeyModifiers::Alt | KeyModifiers::Ctrl,
                                         static_cast<int>('4') });
     keyBindings.SetKeyBinding(ShortcutAction::SwitchToTab4,
-                              KeyChord{ KeyModifiers::Alt,
+                              KeyChord{ KeyModifiers::Alt | KeyModifiers::Ctrl,
                                         static_cast<int>('5') });
     keyBindings.SetKeyBinding(ShortcutAction::SwitchToTab5,
-                              KeyChord{ KeyModifiers::Alt,
+                              KeyChord{ KeyModifiers::Alt | KeyModifiers::Ctrl,
                                         static_cast<int>('6') });
     keyBindings.SetKeyBinding(ShortcutAction::SwitchToTab6,
-                              KeyChord{ KeyModifiers::Alt,
+                              KeyChord{ KeyModifiers::Alt | KeyModifiers::Ctrl,
                                         static_cast<int>('7') });
     keyBindings.SetKeyBinding(ShortcutAction::SwitchToTab7,
-                              KeyChord{ KeyModifiers::Alt,
+                              KeyChord{ KeyModifiers::Alt | KeyModifiers::Ctrl,
                                         static_cast<int>('8') });
     keyBindings.SetKeyBinding(ShortcutAction::SwitchToTab8,
-                              KeyChord{ KeyModifiers::Alt,
+                              KeyChord{ KeyModifiers::Alt | KeyModifiers::Ctrl,
                                         static_cast<int>('9') });
 }
 
@@ -449,7 +518,8 @@ bool CascadiaSettings::_isPowerShellCoreInstalled(std::filesystem::path& cmdline
 // - true iff powershell core (pwsh.exe) is present in the given path
 bool CascadiaSettings::_isPowerShellCoreInstalledInPath(const std::wstring_view programFileEnv, std::filesystem::path& cmdline)
 {
-    std::filesystem::path psCorePath = ExpandEnvironmentVariableString(programFileEnv.data());
+    std::wstring programFileEnvNulTerm{ programFileEnv };
+    std::filesystem::path psCorePath{ wil::ExpandEnvironmentStringsW<std::wstring>(programFileEnvNulTerm.data()) };
     psCorePath /= L"PowerShell";
     if (std::filesystem::exists(psCorePath))
     {
@@ -468,24 +538,92 @@ bool CascadiaSettings::_isPowerShellCoreInstalledInPath(const std::wstring_view 
 }
 
 // Function Description:
-// - Get a environment variable string.
+// - Adds all of the WSL profiles to the provided container.
 // Arguments:
-// - A string that contains an environment-variable string in the form: %variableName%.
+// - A ref to the profiles container where the WSL profiles are to be added
 // Return Value:
-// - a string of the expending environment-variable string.
-std::wstring CascadiaSettings::ExpandEnvironmentVariableString(std::wstring_view source)
+// - <none>
+void CascadiaSettings::_AppendWslProfiles(std::vector<TerminalApp::Profile>& profileStorage)
 {
-    std::wstring result{};
-    DWORD requiredSize = 0;
-    do
-    {
-        result.resize(requiredSize);
-        requiredSize = ::ExpandEnvironmentStringsW(source.data(), result.data(), gsl::narrow<DWORD>(result.size()));
-    } while (requiredSize != result.size());
+    wil::unique_handle readPipe;
+    wil::unique_handle writePipe;
+    SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, true };
+    THROW_IF_WIN32_BOOL_FALSE(CreatePipe(&readPipe, &writePipe, &sa, 0));
+    STARTUPINFO si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writePipe.get();
+    si.hStdError = writePipe.get();
+    wil::unique_process_information pi{};
+    wil::unique_cotaskmem_string systemPath;
+    THROW_IF_FAILED(wil::GetSystemDirectoryW(systemPath));
+    std::wstring command(systemPath.get());
+    command += L"\\wsl.exe --list";
 
-    // Trim the terminating null character
-    result.resize(requiredSize-1);
-    return result;
+    THROW_IF_WIN32_BOOL_FALSE(CreateProcessW(nullptr,
+                                             const_cast<LPWSTR>(command.c_str()),
+                                             nullptr,
+                                             nullptr,
+                                             TRUE,
+                                             CREATE_NO_WINDOW,
+                                             nullptr,
+                                             nullptr,
+                                             &si,
+                                             &pi));
+    switch (WaitForSingleObject(pi.hProcess, INFINITE))
+    {
+    case WAIT_OBJECT_0:
+        break;
+    case WAIT_ABANDONED:
+    case WAIT_TIMEOUT:
+        THROW_HR(ERROR_CHILD_NOT_COMPLETE);
+    case WAIT_FAILED:
+        THROW_LAST_ERROR();
+    default:
+        THROW_HR(ERROR_UNHANDLED_EXCEPTION);
+    }
+    DWORD exitCode;
+    if (GetExitCodeProcess(pi.hProcess, &exitCode) == false)
+    {
+        THROW_HR(E_INVALIDARG);
+    }
+    else if (exitCode != 0)
+    {
+        return;
+    }
+    DWORD bytesAvailable;
+    THROW_IF_WIN32_BOOL_FALSE(PeekNamedPipe(readPipe.get(), nullptr, NULL, nullptr, &bytesAvailable, nullptr));
+    std::wfstream pipe{ _wfdopen(_open_osfhandle((intptr_t)readPipe.get(), _O_WTEXT | _O_RDONLY), L"r") };
+    // don't worry about the handle returned from wfdOpen, readPipe handle is already managed by wil
+    // and closing the file handle will cause an error.
+    std::wstring wline;
+    std::getline(pipe, wline); // remove the header from the output.
+    while (pipe.tellp() < bytesAvailable)
+    {
+        std::getline(pipe, wline);
+        std::wstringstream wlinestream(wline);
+        if (wlinestream)
+        {
+            std::wstring distName;
+            std::getline(wlinestream, distName, L'\r');
+            size_t firstChar = distName.find_first_of(L"( ");
+            // Some localizations don't have a space between the name and "(Default)"
+            // https://github.com/microsoft/terminal/issues/1168#issuecomment-500187109
+            if (firstChar < distName.size())
+            {
+                distName.resize(firstChar);
+            }
+            auto WSLDistro{ _CreateDefaultProfile(distName) };
+            WSLDistro.SetCommandline(L"wsl.exe -d " + distName);
+            WSLDistro.SetColorScheme({ L"Campbell" });
+            WSLDistro.SetStartingDirectory(DEFAULT_STARTING_DIRECTORY);
+            std::wstring iconPath{ PACKAGED_PROFILE_ICON_PATH };
+            iconPath.append(DEFAULT_LINUX_ICON_GUID);
+            iconPath.append(PACKAGED_PROFILE_ICON_EXTENSION);
+            WSLDistro.SetIconPath(iconPath);
+            profileStorage.emplace_back(WSLDistro);
+        }
+    }
 }
 
 // Method Description:
@@ -509,4 +647,133 @@ Profile CascadiaSettings::_CreateDefaultProfile(const std::wstring_view name)
     newProfile.SetIconPath(iconPath);
 
     return newProfile;
+}
+
+// Method Description:
+// - Gets our list of warnings we found during loading. These are things that we
+//   knew were bad when we called `_ValidateSettings` last.
+// Return Value:
+// - a reference to our list of warnings.
+std::vector<TerminalApp::SettingsLoadWarnings>& CascadiaSettings::GetWarnings()
+{
+    return _warnings;
+}
+
+// Method Description:
+// - Attempts to validate this settings structure. If there are critical errors
+//   found, they'll be thrown as a SettingsLoadError. Non-critical errors, such
+//   as not finding the default profile, will only result in an error. We'll add
+//   all these warnings to our list of warnings, and the application can chose
+//   to display these to the user.
+// Arguments:
+// - <none>
+// Return Value:
+// - <none>
+void CascadiaSettings::_ValidateSettings()
+{
+    _warnings.clear();
+
+    // Make sure to check that profiles exists at all first and foremost:
+    _ValidateProfilesExist();
+
+    // Then do some validation on the profiles. The order of these does not
+    // terribly matter.
+    _ValidateNoDuplicateProfiles();
+    _ValidateDefaultProfileExists();
+}
+
+// Method Description:
+// - Checks if the settings contain profiles at all. As we'll need to have some
+//   profiles at all, we'll throw an error if there aren't any profiles.
+void CascadiaSettings::_ValidateProfilesExist()
+{
+    const bool hasProfiles = !_profiles.empty();
+    if (!hasProfiles)
+    {
+        // Throw an exception. This is an invalid state, and we want the app to
+        // be able to gracefully use the default settings.
+
+        // We can't add the warning to the list of warnings here, because this
+        // object is not going to be returned at any point.
+
+        throw ::TerminalApp::SettingsException(::TerminalApp::SettingsLoadErrors::NoProfiles);
+    }
+}
+
+// Method Description:
+// - Checks if the "globals.defaultProfile" is set to one of the profiles we
+//   actually have. If the value is unset, or the value is set to something that
+//   doesn't exist in the list of profiles, we'll arbitrarily pick the first
+//   profile to use temporarily as the default.
+// - Appends a SettingsLoadWarnings::MissingDefaultProfile to our list of
+//   warnings if we failed to find the default.
+void CascadiaSettings::_ValidateDefaultProfileExists()
+{
+    const auto defaultProfileGuid = GlobalSettings().GetDefaultProfile();
+    const bool nullDefaultProfile = defaultProfileGuid == GUID{};
+    bool defaultProfileNotInProfiles = true;
+    for (const auto& profile : _profiles)
+    {
+        if (profile.GetGuid() == defaultProfileGuid)
+        {
+            defaultProfileNotInProfiles = false;
+            break;
+        }
+    }
+
+    if (nullDefaultProfile || defaultProfileNotInProfiles)
+    {
+        _warnings.push_back(::TerminalApp::SettingsLoadWarnings::MissingDefaultProfile);
+        // Use the first profile as the new default
+
+        // _temporarily_ set the default profile to the first profile. Because
+        // we're adding a warning, this settings change won't be re-serialized.
+        GlobalSettings().SetDefaultProfile(_profiles[0].GetGuid());
+    }
+}
+
+// Method Description:
+// - Checks to make sure there aren't any duplicate profiles in the list of
+//   profiles. If so, we'll remove the subsequent entries (temporarily), as they
+//   won't be accessible anyways.
+// - Appends a SettingsLoadWarnings::DuplicateProfile to our list of warnings if
+//   we find any such duplicate.
+void CascadiaSettings::_ValidateNoDuplicateProfiles()
+{
+    bool foundDupe = false;
+
+    std::vector<size_t> indiciesToDelete{};
+
+    // Helper to establish an ordering on guids
+    struct GuidEquality
+    {
+        bool operator()(const GUID& lhs, const GUID& rhs) const
+        {
+            return memcmp(&lhs, &rhs, sizeof(rhs)) < 0;
+        }
+    };
+    std::set<GUID, GuidEquality> uniqueGuids{};
+
+    // Try collecting all the unique guids. If we ever encounter a guid that's
+    // already in the set, then we need to delete that profile.
+    for (int i = 0; i < _profiles.size(); i++)
+    {
+        if (!uniqueGuids.insert(_profiles.at(i).GetGuid()).second)
+        {
+            foundDupe = true;
+            indiciesToDelete.push_back(i);
+        }
+    }
+
+    // Remove all the duplicates we've marked
+    // Walk backwards, so we don't accidentally shift any of the elements
+    for (auto iter = indiciesToDelete.rbegin(); iter != indiciesToDelete.rend(); iter++)
+    {
+        _profiles.erase(_profiles.begin() + *iter);
+    }
+
+    if (foundDupe)
+    {
+        _warnings.push_back(::TerminalApp::SettingsLoadWarnings::DuplicateProfile);
+    }
 }

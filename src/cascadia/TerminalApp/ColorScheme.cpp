@@ -10,15 +10,12 @@ using namespace TerminalApp;
 using namespace ::Microsoft::Console;
 using namespace winrt::Microsoft::Terminal::Settings;
 using namespace winrt::Microsoft::Terminal::TerminalControl;
-using namespace winrt::TerminalApp;
-using namespace winrt::Windows::Data::Json;
 
 static constexpr std::string_view NameKey{ "name" };
 static constexpr std::string_view TableKey{ "colors" };
 static constexpr std::string_view ForegroundKey{ "foreground" };
 static constexpr std::string_view BackgroundKey{ "background" };
-static constexpr std::array<std::string_view, 16> TableColors =
-{
+static constexpr std::array<std::string_view, 16> TableColors = {
     "black",
     "red",
     "green",
@@ -39,25 +36,22 @@ static constexpr std::array<std::string_view, 16> TableColors =
 
 ColorScheme::ColorScheme() :
     _schemeName{ L"" },
-    _table{  },
+    _table{},
     _defaultForeground{ RGB(242, 242, 242) },
     _defaultBackground{ RGB(12, 12, 12) }
 {
-
 }
 
 ColorScheme::ColorScheme(std::wstring name, COLORREF defaultFg, COLORREF defaultBg) :
     _schemeName{ name },
-    _table{  },
+    _table{},
     _defaultForeground{ defaultFg },
     _defaultBackground{ defaultBg }
 {
-
 }
 
 ColorScheme::~ColorScheme()
 {
-
 }
 
 // Method Description:
@@ -72,7 +66,8 @@ void ColorScheme::ApplyScheme(TerminalSettings terminalSettings) const
     terminalSettings.DefaultForeground(_defaultForeground);
     terminalSettings.DefaultBackground(_defaultBackground);
 
-    for (int i = 0; i < _table.size(); i++)
+    auto const tableCount = gsl::narrow_cast<int>(_table.size());
+    for (int i = 0; i < tableCount; i++)
     {
         terminalSettings.SetColorTableEntry(i, _table[i]);
     }
@@ -156,7 +151,6 @@ ColorScheme ColorScheme::FromJson(const Json::Value& json)
 
     return result;
 }
-
 
 std::wstring_view ColorScheme::GetName() const noexcept
 {

@@ -17,7 +17,6 @@ Author(s):
 #pragma once
 #include <winrt/Microsoft.Terminal.Settings.h>
 #include <winrt/Microsoft.Terminal.TerminalControl.h>
-#include <winrt/TerminalApp.h>
 #include "../../inc/conattrs.hpp"
 
 namespace TerminalApp
@@ -27,7 +26,6 @@ namespace TerminalApp
 
 class TerminalApp::ColorScheme
 {
-
 public:
     ColorScheme();
     ColorScheme(std::wstring name, COLORREF defaultFg, COLORREF defaultBg);

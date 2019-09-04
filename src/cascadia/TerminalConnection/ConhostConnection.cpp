@@ -5,16 +5,12 @@
 #include "ConhostConnection.h"
 #include "windows.h"
 #include <sstream>
-// STARTF_USESTDHANDLES is only defined in WINAPI_PARTITION_DESKTOP
-// We're just gonna manually define it for this prototyping code
-#ifndef STARTF_USESTDHANDLES
-#define STARTF_USESTDHANDLES       0x00000100
-#endif
 
 #include "ConhostConnection.g.cpp"
 
 #include <conpty-universal.h>
 #include "../../types/inc/Utils.hpp"
+#include "../../types/inc/UTF8OutPipeReader.hpp"
 
 using namespace ::Microsoft::Console;
 
@@ -22,6 +18,7 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
 {
     ConhostConnection::ConhostConnection(const hstring& commandline,
                                          const hstring& startingDirectory,
+                                         const hstring& startingTitle,
                                          const uint32_t initialRows,
                                          const uint32_t initialCols,
                                          const guid& initialGuid) :
@@ -29,9 +26,10 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
         _initialCols{ initialCols },
         _commandline{ commandline },
         _startingDirectory{ startingDirectory },
+        _startingTitle{ startingTitle },
         _guid{ initialGuid }
     {
-        if (_guid == guid())
+        if (_guid == guid{})
         {
             _guid = Utils::CreateGuid();
         }
@@ -83,6 +81,20 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
             extraEnvVars.emplace(L"WT_SESSION", pwszGuid);
         }
 
+        STARTUPINFO si = { 0 };
+        si.cb = sizeof(STARTUPINFOW);
+
+        // If we have a startingTitle, create a mutable character buffer to add
+        // it to the STARTUPINFO.
+        std::unique_ptr<wchar_t[]> mutableTitle{ nullptr };
+        if (!_startingTitle.empty())
+        {
+            mutableTitle = std::make_unique<wchar_t[]>(_startingTitle.size() + 1);
+            THROW_IF_NULL_ALLOC(mutableTitle);
+            THROW_IF_FAILED(StringCchCopy(mutableTitle.get(), _startingTitle.size() + 1, _startingTitle.c_str()));
+            si.lpTitle = mutableTitle.get();
+        }
+
         THROW_IF_FAILED(
             CreateConPty(cmdline,
                          startingDirectory,
@@ -92,31 +104,35 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
                          &_outPipe,
                          &_signalPipe,
                          &_piConhost,
+                         0,
+                         si,
                          extraEnvVars));
 
-        _connected = true;
-
         // Create our own output handling thread
-        // Each console needs to make sure to drain the output from its backing host.
-        _outputThreadId = static_cast<DWORD>(-1);
-        _hOutputThread = CreateThread(nullptr,
-                                      0,
-                                      StaticOutputThreadProc,
-                                      this,
-                                      0,
-                                      &_outputThreadId);
+        // This must be done after the pipes are populated.
+        // Each connection needs to make sure to drain the output from its backing host.
+        _hOutputThread.reset(CreateThread(nullptr,
+                                          0,
+                                          StaticOutputThreadProc,
+                                          this,
+                                          0,
+                                          nullptr));
+
+        THROW_LAST_ERROR_IF_NULL(_hOutputThread);
+
+        _connected = true;
     }
 
     void ConhostConnection::WriteInput(hstring const& data)
     {
-        if (!_connected || _closing)
+        if (!_connected || _closing.load())
         {
             return;
         }
 
         // convert from UTF-16LE to UTF-8 as ConPty expects UTF-8
         std::string str = winrt::to_string(data);
-        bool fSuccess = !!WriteFile(_inPipe, str.c_str(), (DWORD)str.length(), nullptr, nullptr);
+        bool fSuccess = !!WriteFile(_inPipe.get(), str.c_str(), (DWORD)str.length(), nullptr, nullptr);
         fSuccess;
     }
 
@@ -127,29 +143,38 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
             _initialRows = rows;
             _initialCols = columns;
         }
-        else if (!_closing)
+        else if (!_closing.load())
         {
-            SignalResizeWindow(_signalPipe, static_cast<unsigned short>(columns), static_cast<unsigned short>(rows));
+            SignalResizeWindow(_signalPipe.get(), Utils::ClampToShortMax(columns, 1), Utils::ClampToShortMax(rows, 1));
         }
     }
 
     void ConhostConnection::Close()
     {
-        if (!_connected) return;
-        if (_closing) return;
-        _closing = true;
-        // TODO:
-        //      terminate the output thread
-        //      Close our handles
-        //      Close the Pseudoconsole
-        //      terminate our processes
-        CloseHandle(_signalPipe);
-        CloseHandle(_inPipe);
-        CloseHandle(_outPipe);
-        // What? CreateThread is in app partition but TerminateThread isn't?
-        //TerminateThread(_hOutputThread, 0);
-        TerminateProcess(_piConhost.hProcess, 0);
-        CloseHandle(_piConhost.hProcess);
+        if (!_connected)
+        {
+            return;
+        }
+
+        if (!_closing.exchange(true))
+        {
+            // It is imperative that the signal pipe be closed first; this triggers the
+            // pseudoconsole host's teardown. See PtySignalInputThread.cpp.
+            _signalPipe.reset();
+            _inPipe.reset();
+            _outPipe.reset();
+
+            // Tear down our output thread -- now that the output pipe was closed on the
+            // far side, we can run down our local reader.
+            WaitForSingleObject(_hOutputThread.get(), INFINITE);
+            _hOutputThread.reset();
+
+            // Wait for conhost to terminate.
+            WaitForSingleObject(_piConhost.hProcess, INFINITE);
+
+            _hJob.reset(); // This is a formality.
+            _piConhost.reset();
+        }
     }
 
     DWORD WINAPI ConhostConnection::StaticOutputThreadProc(LPVOID lpParameter)
@@ -160,37 +185,37 @@ namespace winrt::Microsoft::Terminal::TerminalConnection::implementation
 
     DWORD ConhostConnection::_OutputThread()
     {
-        const size_t bufferSize = 4096;
-        BYTE buffer[bufferSize];
-        DWORD dwRead;
+        UTF8OutPipeReader pipeReader{ _outPipe.get() };
+        std::string_view strView{};
+
+        // process the data of the output pipe in a loop
         while (true)
         {
-            dwRead = 0;
-            bool fSuccess = false;
-
-            fSuccess = !!ReadFile(_outPipe, buffer, bufferSize, &dwRead, nullptr);
-            if (!fSuccess)
+            HRESULT result = pipeReader.Read(strView);
+            if (FAILED(result) || result == S_FALSE)
             {
-                if (_closing)
+                if (_closing.load())
                 {
                     // This is okay, break out to kill the thread
                     return 0;
                 }
-                else
-                {
-                    _disconnectHandlers();
-                    return (DWORD)-1;
-                }
 
+                _disconnectHandlers();
+                return (DWORD)-1;
             }
-            if (dwRead == 0) continue;
+
+            if (strView.empty())
+            {
+                return 0;
+            }
+
             // Convert buffer to hstring
-            char* pchStr = (char*)(buffer);
-            std::string str{pchStr, dwRead};
-            auto hstr = winrt::to_hstring(str);
+            auto hstr{ winrt::to_hstring(strView) };
 
             // Pass the output to our registered event handlers
             _outputHandlers(hstr);
         }
+
+        return 0;
     }
 }

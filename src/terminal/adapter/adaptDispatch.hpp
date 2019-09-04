@@ -23,13 +23,11 @@ Author(s):
 
 #define XTERM_COLOR_TABLE_SIZE (256)
 
-
 namespace Microsoft::Console::VirtualTerminal
 {
     class AdaptDispatch : public ITermDispatch
     {
     public:
-
         AdaptDispatch(ConGetSet* const pConApi,
                       AdaptDefaults* const pDefaults);
 
@@ -71,9 +69,10 @@ namespace Microsoft::Console::VirtualTerminal
                              const size_t cParams) override; // DECSET
         bool ResetPrivateModes(_In_reads_(cParams) const DispatchTypes::PrivateModeParams* const rParams,
                                const size_t cParams) override; // DECRST
-        bool SetCursorKeysMode(const bool fApplicationMode) override;  // DECCKM
-        bool SetKeypadMode(const bool fApplicationMode) override;  // DECKPAM, DECKPNM
+        bool SetCursorKeysMode(const bool fApplicationMode) override; // DECCKM
+        bool SetKeypadMode(const bool fApplicationMode) override; // DECKPAM, DECKPNM
         bool EnableCursorBlinking(const bool bEnable) override; // ATT610
+        bool SetOriginMode(const bool fRelativeMode) override; // DECOM
         bool SetTopBottomScrollingMargins(const SHORT sTopMargin,
                                           const SHORT sBottomMargin) override; // DECSTBM
         bool ReverseLineFeed() override; // RI
@@ -87,6 +86,7 @@ namespace Microsoft::Console::VirtualTerminal
         bool DesignateCharset(const wchar_t wchCharset) override; // DesignateCharset
         bool SoftReset() override; // DECSTR
         bool HardReset() override; // RIS
+        bool EnableDECCOLMSupport(const bool fEnabled) override; // ?40
         bool EnableVT200MouseMode(const bool fEnabled) override; // ?1000
         bool EnableUTF8ExtendedMouseMode(const bool fEnabled) override; // ?1005
         bool EnableSGRExtendedMouseMode(const bool fEnabled) override; // ?1006
@@ -100,13 +100,12 @@ namespace Microsoft::Console::VirtualTerminal
                                 const DWORD dwColor) override; // OscColorTable
         bool SetDefaultForeground(const DWORD dwColor) override; // OSCDefaultForeground
         bool SetDefaultBackground(const DWORD dwColor) override; // OSCDefaultBackground
-        
+
         bool WindowManipulation(const DispatchTypes::WindowManipulationType uiFunction,
                                 _In_reads_(cParams) const unsigned short* const rgusParams,
                                 const size_t cParams) override; // DTTERM_WindowManipulation
 
     private:
-
         enum class CursorDirection
         {
             Up,
@@ -152,7 +151,12 @@ namespace Microsoft::Console::VirtualTerminal
         COORD _coordSavedCursor;
         SMALL_RECT _srScrollMargins;
 
+        bool _fIsOriginModeRelative;
+        bool _fIsSavedOriginModeRelative;
+
         bool _fIsSetColumnsEnabled;
+
+        bool _fIsDECCOLMAllowed;
 
         bool _fChangedForeground;
         bool _fChangedBackground;
